@@ -1,0 +1,134 @@
+%{
+// FSM for heart rate monitor connection(s).
+%}
+%class HeartRateConnect
+%package net.verizon.mflacy.heartratemonitor
+%import com.bluekitchen.btstack.event.*
+%start HeartRateConnectFSM::Init
+%map HeartRateConnectFSM
+%%
+Init
+{
+        handleBTstackEventState(event: BTstackEventState)
+        [ ctxt.isUp(event) ]
+        LEScanRunning
+        {
+                startLEScan();
+        }
+
+        handleBTstackEventState(event: BTstackEventState)
+        [ !ctxt.isUp(event) ]
+        nil
+        {
+                // just wait.
+        }
+
+}
+
+LEScanRunning
+{
+        handleGAPLEAdvertisingReport(event: GAPLEAdvertisingReport)
+        LEConnecting
+        {
+                stopLEScan();
+                recordAddrInfo(event);
+                performLEConnect();
+        }
+        
+}
+
+LEConnecting
+{
+        handleHCIEventLEConnectionComplete(event: HCIEventLEConnectionComplete)
+        DiscoveringPrimaryServices
+        {
+                recordConnectionHandle(event);
+                discoverPrimaryServices();
+        }
+        
+        handleGAPLEAdvertisingReport(event: GAPLEAdvertisingReport)
+        nil
+        {
+                whine(event);
+        }
+
+}
+
+DiscoveringPrimaryServices
+{
+        handleGATTServiceQueryResult(event: GATTServiceQueryResult)
+        nil
+        {
+                recordPrimaryService(event);
+        }
+
+        handleGATTQueryComplete(event: GATTQueryComplete)
+        [ ctxt.haveServices() ]
+        DiscoveringServiceCharacteristics
+        {
+                discoverNextServiceCharacteristics();
+        }
+        
+}
+
+DiscoveringServiceCharacteristics
+{
+        handleGATTCharacteristicQueryResult(event: GATTCharacteristicQueryResult)
+        nil
+        {
+                recordServiceCharacteristic(event);
+        }
+
+        handleGATTQueryComplete(event: GATTQueryComplete)
+        [ ctxt.haveMoreServices() ]
+        nil
+        {
+                discoverNextServiceCharacteristics();
+        }
+        
+        handleGATTQueryComplete(event: GATTQueryComplete)
+        [ !ctxt.haveMoreServices() ]
+        DiscoveringCharacteristicDescriptors
+        {
+                discoverFirstServiceCharacteristicDescriptor();
+        }
+}
+
+DiscoveringCharacteristicDescriptors
+{
+        handleGATTAllCharacteristicDescriptorsQueryResult(event: GATTAllCharacteristicDescriptorsQueryResult)
+        nil
+        {
+                recordCharacteristicDescriptor(event);
+        }
+
+        handleGATTQueryComplete(event: GATTQueryComplete)
+        [ ctxt.haveMoreCharacteristics() ]
+        nil
+        {
+                discoverNextServiceCharacteristicDescriptor();
+        }
+        
+        handleGATTQueryComplete(event: GATTQueryComplete)
+        [ !ctxt.haveMoreCharacteristics() ]
+        Running
+        {
+                registerForNotifications();
+        }
+
+        handleGATTCharacteristicQueryResult(event: GATTCharacteristicQueryResult)
+        nil
+        {
+                whine(event);
+        }
+}
+
+Running
+{
+        handleGATTNotification(event: GATTNotification)
+        nil
+        {
+                recordNotification(event);
+        }
+}
+%%
